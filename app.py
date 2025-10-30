@@ -12,7 +12,7 @@ db.init_app(app)
 
 with app.app_context():
     db.create_all()
-    # Seed demo jobs
+    
     if not Job.query.first():
         demo_jobs = [
             Job(title='Software Engineer', description='Develop software', location='New York', salary=80000, job_type='full-time', employer_id=1),
