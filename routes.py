@@ -1,15 +1,52 @@
 from flask import Blueprint, request, jsonify
-from models import db, Job
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
+from models import db, Job, User
 
 jobs_bp = Blueprint('jobs', __name__)
+auth_bp = Blueprint('auth', __name__)
 
 def check_employer_role():
-    role = request.headers.get('role')
-    if role != 'employer':
+    claims = get_jwt()
+    if claims.get('role') != 'employer':
         return jsonify({'error': 'Access denied. Employer role required.'}), 403
     return None
 
+@auth_bp.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+    role = data.get('role')  # 'employer' or 'job_seeker'
+
+    if not username or not password or not role:
+        return jsonify({'error': 'Username, password, and role are required'}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({'error': 'Username already exists'}), 400
+
+    user = User(username=username, role=role)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({'message': 'User registered successfully'}), 201
+
+@auth_bp.route('/login', methods=['POST'])
+def login():
+    from flask_jwt_extended import create_access_token
+
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    user = User.query.filter_by(username=username).first()
+    if not user or not user.check_password(password):
+        return jsonify({'error': 'Invalid credentials'}), 401
+
+    access_token = create_access_token(identity=username, additional_claims={'role': user.role})
+    return jsonify({'access_token': access_token}), 200
+
 @jobs_bp.route('/jobs', methods=['GET'])
+@jwt_required()
 def get_jobs():
     jobs = Job.query.all()
     return jsonify([{
@@ -23,6 +60,7 @@ def get_jobs():
     } for job in jobs])
 
 @jobs_bp.route('/jobs', methods=['POST'])
+@jwt_required()
 def create_job():
     error = check_employer_role()
     if error:
@@ -50,6 +88,7 @@ def create_job():
     return jsonify({'message': 'Job created', 'id': new_job.id}), 201
 
 @jobs_bp.route('/jobs/<int:job_id>', methods=['PATCH'])
+@jwt_required()
 def update_job(job_id):
     error = check_employer_role()
     if error:
@@ -71,6 +110,7 @@ def update_job(job_id):
     return jsonify({'message': 'Job updated'})
 
 @jobs_bp.route('/jobs/<int:job_id>', methods=['DELETE'])
+@jwt_required()
 def delete_job(job_id):
     error = check_employer_role()
     if error:
